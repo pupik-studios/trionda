@@ -1235,10 +1235,7 @@ async function boot() {
     let point = null;
     if (aiming === "to") {
       const goalHits = raycaster.intersectObject(goal, true);
-      if (!goalHits.length) {
-        $("shot-hint").textContent = "Куда можно ставить только на ворота";
-        return;
-      }
+      if (!goalHits.length) return;
       point = goalHits[0].point.clone();
     } else if (raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 1.02), groundHit)) {
       point = groundHit.clone();
