@@ -1119,6 +1119,17 @@ async function boot() {
   const goal = sitOnFloor(goalGltf.scene, 1.7);
   goal.position.set(0.2, -1.02, -2.05);
   scene.add(goal);
+  const goalBox = new THREE.Box3().setFromObject(goal);
+  const goalMouth = new THREE.Mesh(
+    new THREE.PlaneGeometry(goalBox.max.x - goalBox.min.x, goalBox.max.y - goalBox.min.y),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide })
+  );
+  goalMouth.position.set(
+    (goalBox.min.x + goalBox.max.x) / 2,
+    (goalBox.min.y + goalBox.max.y) / 2,
+    goalBox.max.z
+  );
+  scene.add(goalMouth);
 
   let shotCurve = new THREE.CubicBezierCurve3(
     new THREE.Vector3(0, -0.72, 1),
@@ -1234,7 +1245,7 @@ async function boot() {
     raycaster.setFromCamera(pointer, camera);
     let point = null;
     if (aiming === "to") {
-      const goalHits = raycaster.intersectObject(goal, true);
+      const goalHits = raycaster.intersectObjects([goalMouth, goal], true);
       if (!goalHits.length) return;
       point = goalHits[0].point.clone();
     } else if (raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 1.02), groundHit)) {
