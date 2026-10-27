@@ -106,6 +106,61 @@ nav { display: flex; gap: 8px; }
   color: #14110c;
 }
 
+#ui.goal-mode::before { opacity: 0; }
+#ui.goal-mode .top,
+#ui.goal-mode .hero,
+#ui.goal-mode .foot { display: none; }
+
+#shot-panel {
+  position: fixed;
+  top: 24px;
+  left: 24px;
+  z-index: 4;
+  width: min(280px, 88vw);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: #0c0e14;
+  border: 1px solid rgba(198, 161, 90, 0.45);
+}
+
+#shot-panel[hidden] { display: none; }
+
+#shot-hint {
+  margin: 0;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 14px;
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+
+.shot-row { display: flex; gap: 8px; }
+
+#shot-panel button {
+  pointer-events: auto;
+  flex: 1;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid rgba(244, 241, 234, 0.2);
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+#shot-panel button.on,
+#shot-play {
+  border-color: rgba(198, 161, 90, 0.8);
+  color: var(--gold);
+}
+
+#shot-play:disabled { opacity: 0.35; cursor: default; }
+
+body.goal-mode canvas { cursor: crosshair; }
+
 nav button {
   pointer-events: auto;
   background: transparent;

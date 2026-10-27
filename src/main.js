@@ -1061,11 +1061,11 @@ async function boot() {
   goal.position.set(0.2, -1.02, -2.05);
   scene.add(goal);
 
-  const shotCurve = new THREE.CubicBezierCurve3(
-    new THREE.Vector3(1.85, -0.72, 0.85),
-    new THREE.Vector3(2.15, 0.72, 0.05),
-    new THREE.Vector3(-0.15, 0.9, -0.95),
-    new THREE.Vector3(-1.2, 0.08, -1.9)
+  let shotCurve = new THREE.CubicBezierCurve3(
+    new THREE.Vector3(0, -0.72, 1),
+    new THREE.Vector3(0, 0.2, 0),
+    new THREE.Vector3(0, 0.2, -1),
+    new THREE.Vector3(0, -0.2, -1.8)
   );
   const shotBall = new THREE.Mesh(
     new THREE.SphereGeometry(0.3, 64, 48),
@@ -1087,7 +1087,7 @@ async function boot() {
   });
   const shotFrom = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.26, 40), ringMat);
   shotFrom.rotation.x = -Math.PI / 2;
-  shotFrom.position.set(1.85, -1.005, 0.85);
+  shotFrom.position.set(0, -1.005, 1);
   shotFrom.visible = false;
   scene.add(shotFrom);
   const shotTo = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.3, 40), ringMat);
@@ -1120,22 +1120,143 @@ async function boot() {
   scene.add(fill);
 
   let shotT = -1;
+  let goalMode = false;
+  let curl = true;
+  let aiming = "from";
+  let fromPoint = null;
+  let toPoint = null;
   const shotPoint = new THREE.Vector3();
-  const SHOT_FLIGHT = 2.8;
-  const SHOT_HOLD = 1.6;
+  const groundHit = new THREE.Vector3();
+  const SHOT_FLIGHT = 1.7;
+  const goalCam = new THREE.Vector3(0.25, 4.4, 6.2);
+  const goalLook = new THREE.Vector3(0.2, -0.45, -1.15);
 
-  function playGoal() {
-    shotT = 0;
-    shotBall.position.copy(shotCurve.getPoint(0));
-    shotBall.rotation.set(0, 0, 0);
-    shotBall.visible = true;
-    shotTrail.visible = true;
-    shotFrom.visible = true;
-    shotTo.visible = true;
-    $("goal-btn").classList.add("on");
+  function makeCurve(from, to, withCurl) {
+    const dir = new THREE.Vector3().subVectors(to, from);
+    const flat = Math.hypot(dir.x, dir.z) || 1;
+    const side = new THREE.Vector3(-dir.z / flat, 0, dir.x / flat);
+    const bend = withCurl ? flat * 0.34 : 0;
+    const c1 = from.clone().lerp(to, 0.33).addScaledVector(side, bend);
+    const c2 = from.clone().lerp(to, 0.66).addScaledVector(side, bend * 0.45);
+    c1.y += withCurl ? 0.85 : 0.55;
+    c2.y += withCurl ? 0.45 : 0.28;
+    return new THREE.CubicBezierCurve3(from.clone(), c1, c2, to.clone());
   }
 
-  $("goal-btn").addEventListener("click", playGoal);
+  function refreshPath() {
+    const ready = fromPoint && toPoint;
+    $("shot-play").disabled = !ready;
+    if (!ready) {
+      shotTrail.visible = false;
+      return;
+    }
+    shotCurve = makeCurve(fromPoint, toPoint, curl);
+    shotTrail.geometry.dispose();
+    shotTrail.geometry = new THREE.TubeGeometry(shotCurve, 80, 0.02, 6, false);
+    shotTrail.visible = true;
+    if (shotT < 0) {
+      shotBall.position.copy(fromPoint);
+      shotBall.visible = true;
+    }
+  }
+
+  function placeShotPoint(e) {
+    if (shotT >= 0) return;
+    const rect = el.getBoundingClientRect();
+    pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    let point = null;
+    if (aiming === "to") {
+      const goalHits = raycaster.intersectObject(goal, true);
+      if (goalHits.length) point = goalHits[0].point.clone();
+    }
+    if (!point && raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 1.02), groundHit)) {
+      point = groundHit.clone();
+    }
+    if (!point || Math.abs(point.x) > 12 || Math.abs(point.z) > 12) return;
+    if (aiming === "from") {
+      fromPoint = point;
+      fromPoint.y = -0.72;
+      shotFrom.position.set(fromPoint.x, -1.005, fromPoint.z);
+      shotFrom.visible = true;
+      aiming = "to";
+      $("shot-from").classList.remove("on");
+      $("shot-to").classList.add("on");
+      $("shot-hint").textContent = "Кликни ворота или газон — куда бьёт";
+    } else {
+      toPoint = point;
+      if (toPoint.y < -0.65) toPoint.y = -0.72;
+      shotTo.position.copy(toPoint);
+      shotTo.rotation.set(toPoint.y > -0.5 ? 0 : -Math.PI / 2, 0, 0);
+      shotTo.visible = true;
+      $("shot-hint").textContent = "Жми удар";
+    }
+    refreshPath();
+  }
+
+  function enterGoal() {
+    goalMode = true;
+    shotT = -1;
+    $("ui").classList.add("goal-mode");
+    document.body.classList.add("goal-mode");
+    $("shot-panel").hidden = false;
+    $("dossier").hidden = true;
+    faceBack = null;
+    for (const obj of [ball, finalBall, shadow, finalShadow, trophy, trophyShadow, ola, ...kits]) {
+      obj.visible = false;
+    }
+  }
+
+  function leaveGoal() {
+    goalMode = false;
+    shotT = -1;
+    $("ui").classList.remove("goal-mode");
+    document.body.classList.remove("goal-mode");
+    $("shot-panel").hidden = true;
+    shotBall.visible = false;
+    shotTrail.visible = false;
+    shotFrom.visible = false;
+    shotTo.visible = false;
+    for (const obj of [ball, finalBall, shadow, finalShadow, trophy, trophyShadow, ola, ...kits]) {
+      obj.visible = true;
+    }
+  }
+
+  $("goal-btn").addEventListener("click", enterGoal);
+  $("shot-back").addEventListener("click", leaveGoal);
+  $("shot-from").addEventListener("click", () => {
+    aiming = "from";
+    $("shot-from").classList.add("on");
+    $("shot-to").classList.remove("on");
+    $("shot-hint").textContent = "Кликни газон — откуда бьёт";
+  });
+  $("shot-to").addEventListener("click", () => {
+    aiming = "to";
+    $("shot-to").classList.add("on");
+    $("shot-from").classList.remove("on");
+    $("shot-hint").textContent = "Кликни ворота или газон — куда бьёт";
+  });
+  $("shot-curl").addEventListener("click", () => {
+    curl = true;
+    $("shot-curl").classList.add("on");
+    $("shot-straight").classList.remove("on");
+    refreshPath();
+  });
+  $("shot-straight").addEventListener("click", () => {
+    curl = false;
+    $("shot-straight").classList.add("on");
+    $("shot-curl").classList.remove("on");
+    refreshPath();
+  });
+  $("shot-play").addEventListener("click", () => {
+    if (!fromPoint || !toPoint || shotT >= 0) return;
+    refreshPath();
+    shotT = 0;
+    shotBall.position.copy(fromPoint);
+    shotBall.rotation.set(0, 0, 0);
+    shotBall.visible = true;
+  });
 
   let chapter = 0;
   let targetRot = CHAPTERS[0].rot;
@@ -1189,6 +1310,7 @@ async function boot() {
     "wheel",
     (e) => {
       e.preventDefault();
+      if (goalMode) return;
       const now = performance.now();
       if (now < wheelLock) return;
       if (Math.abs(e.deltaY) < 8) return;
@@ -1244,6 +1366,10 @@ async function boot() {
   }
 
   el.addEventListener("pointerdown", (e) => {
+    if (goalMode) {
+      placeShotPoint(e);
+      return;
+    }
     const picked = pickObject(e);
     if (!picked) return;
     dragging = true;
@@ -1312,26 +1438,21 @@ async function boot() {
     pos.needsUpdate = true;
     ola.position.y = ball.position.y;
 
-    if (shotT >= 0) {
-      shotT += dt;
-      const flight = Math.min(shotT / SHOT_FLIGHT, 1);
-      const eased = flight * flight * (3 - 2 * flight);
-      shotCurve.getPoint(eased, shotPoint);
-      shotBall.position.copy(shotPoint);
-      shotBall.rotation.x += dt * 13;
-      shotBall.rotation.y += dt * 8;
-      shotBall.rotation.z += dt * 3.2;
-      camera.position.x += (2.4 - camera.position.x) * 0.08;
-      camera.position.y += (1.15 - camera.position.y) * 0.08;
-      camera.position.z += (5.4 - camera.position.z) * 0.08;
-      camera.lookAt(0.35, -0.25, -0.7);
-      if (shotT > SHOT_FLIGHT + SHOT_HOLD) {
-        shotT = -1;
-        shotBall.visible = false;
-        shotTrail.visible = false;
-        shotFrom.visible = false;
-        shotTo.visible = false;
-        $("goal-btn").classList.remove("on");
+    if (goalMode) {
+      camera.position.x += (goalCam.x - camera.position.x) * 0.08;
+      camera.position.y += (goalCam.y - camera.position.y) * 0.08;
+      camera.position.z += (goalCam.z - camera.position.z) * 0.08;
+      camera.lookAt(goalLook);
+      if (toPoint && toPoint.y > -0.5) shotTo.lookAt(camera.position);
+      if (shotT >= 0) {
+        shotT += dt;
+        const flight = Math.min(shotT / SHOT_FLIGHT, 1);
+        const eased = flight * flight * (3 - 2 * flight);
+        shotCurve.getPoint(eased, shotPoint);
+        shotBall.position.copy(shotPoint);
+        shotBall.rotation.y += dt * (curl ? 12 : 2.2);
+        if (curl) shotBall.rotation.z += dt * 5;
+        if (flight >= 1) shotT = -1;
       }
     } else {
       const narrow = window.innerWidth < 900;
