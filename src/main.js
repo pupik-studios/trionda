@@ -87,10 +87,20 @@ function startCrowd() {
       fans.buffer = fansBuf;
       fans.loop = true;
       const fansGain = ctx.createGain();
-      fansGain.gain.value = 0.95;
+      fansGain.gain.value = 0.55;
       fans.connect(fansGain);
       fansGain.connect(master);
       fans.start();
+
+      startCrowd.playCheer = () => {
+        const src = ctx.createBufferSource();
+        src.buffer = fansBuf;
+        const burst = ctx.createGain();
+        burst.gain.value = 1.25;
+        src.connect(burst);
+        burst.connect(master);
+        src.start();
+      };
     })
     .catch(() => {
       startCrowd.started = false;
@@ -956,6 +966,54 @@ function makeOla() {
   return points;
 }
 
+function pitchMarkings() {
+  const group = new THREE.Group();
+  const paint = new THREE.MeshBasicMaterial({ color: 0xf7f4ee });
+  const u = 5.02 / 7.32;
+  const gx = 0.2;
+  const gz = -1.36;
+  const along = new THREE.Vector3(1, 0, 0);
+  const addLine = (x1, z1, x2, z2, width = 0.09) => {
+    const dx = x2 - x1;
+    const dz = z2 - z1;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.02) return;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(len, 0.012, width), paint);
+    mesh.quaternion.setFromUnitVectors(along, new THREE.Vector3(dx / len, 0, dz / len));
+    mesh.position.set((x1 + x2) / 2, -1.0, (z1 + z2) / 2);
+    group.add(mesh);
+  };
+  const box = (widthM, depthM) => {
+    const hw = widthM * u * 0.5;
+    const d = depthM * u;
+    addLine(gx - hw, gz, gx + hw, gz);
+    addLine(gx + hw, gz, gx + hw, gz + d);
+    addLine(gx + hw, gz + d, gx - hw, gz + d);
+    addLine(gx - hw, gz + d, gx - hw, gz);
+  };
+  addLine(gx - 34 * u, gz, gx + 34 * u, gz, 0.12);
+  addLine(gx - 34 * u, gz, gx - 34 * u, gz + 52 * u, 0.12);
+  addLine(gx + 34 * u, gz, gx + 34 * u, gz + 52 * u, 0.12);
+  box(40.32, 16.5);
+  box(18.32, 5.5);
+  const spotZ = gz + 11 * u;
+  const spot = new THREE.Mesh(new THREE.CircleGeometry(0.09, 24), paint);
+  spot.rotation.x = -Math.PI / 2;
+  spot.position.set(gx, -0.998, spotZ);
+  group.add(spot);
+  const arcR = 9.15 * u;
+  const arcLimit = gz + 16.5 * u;
+  let prev = null;
+  for (let i = 0; i <= 48; i++) {
+    const ang = -0.7 + (1.4 * i) / 48;
+    const x = gx + Math.sin(ang) * arcR;
+    const z = spotZ + Math.cos(ang) * arcR;
+    if (z >= arcLimit && prev) addLine(prev[0], prev[1], x, z, 0.045);
+    prev = z >= arcLimit ? [x, z] : null;
+  }
+  return group;
+}
+
 function canvasTexture(canvas, colorSpace) {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = colorSpace;
@@ -1032,6 +1090,7 @@ async function boot() {
   pitch.rotation.x = -Math.PI / 2;
   pitch.position.y = -1.02;
   scene.add(pitch);
+  scene.add(pitchMarkings());
 
   const shadow = new THREE.Mesh(
     new THREE.CircleGeometry(0.86, 40),
@@ -1127,20 +1186,24 @@ async function boot() {
   let toPoint = null;
   const shotPoint = new THREE.Vector3();
   const groundHit = new THREE.Vector3();
-  const SHOT_FLIGHT = 1.7;
-  const goalCam = new THREE.Vector3(0.25, 4.4, 6.2);
-  const goalLook = new THREE.Vector3(0.2, -0.45, -1.15);
+  const SHOT_FLIGHT = 2.15;
+  const goalCam = new THREE.Vector3(0.2, 6.4, 9.8);
+  const goalLook = new THREE.Vector3(0.2, -0.55, -0.2);
+  const mouthZ = -1.35;
+  let cheered = false;
+  let shotPrevZ = 0;
 
   function makeCurve(from, to, withCurl) {
     const dir = new THREE.Vector3().subVectors(to, from);
     const flat = Math.hypot(dir.x, dir.z) || 1;
     const side = new THREE.Vector3(-dir.z / flat, 0, dir.x / flat);
-    const bend = withCurl ? flat * 0.34 : 0;
-    const c1 = from.clone().lerp(to, 0.33).addScaledVector(side, bend);
-    const c2 = from.clone().lerp(to, 0.66).addScaledVector(side, bend * 0.45);
-    c1.y += withCurl ? 0.85 : 0.55;
-    c2.y += withCurl ? 0.45 : 0.28;
-    return new THREE.CubicBezierCurve3(from.clone(), c1, c2, to.clone());
+    const bend = withCurl ? flat * 0.28 : 0;
+    const past = to.clone().add(dir.clone().normalize().multiplyScalar(Math.max(1.8, flat * 0.5)));
+    const c1 = from.clone().lerp(to, 0.38).addScaledVector(side, bend);
+    const c2 = to.clone().lerp(past, 0.2).addScaledVector(side, bend * 0.12);
+    c1.y = Math.max(from.y, to.y) + (withCurl ? 0.75 : 0.38);
+    c2.y = to.y + 0.06;
+    return new THREE.CubicBezierCurve3(from.clone(), c1, c2, past);
   }
 
   function refreshPath() {
@@ -1169,12 +1232,15 @@ async function boot() {
     let point = null;
     if (aiming === "to") {
       const goalHits = raycaster.intersectObject(goal, true);
-      if (goalHits.length) point = goalHits[0].point.clone();
-    }
-    if (!point && raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 1.02), groundHit)) {
+      if (!goalHits.length) {
+        $("shot-hint").textContent = "Куда можно ставить только на ворота";
+        return;
+      }
+      point = goalHits[0].point.clone();
+    } else if (raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 1.02), groundHit)) {
       point = groundHit.clone();
     }
-    if (!point || Math.abs(point.x) > 12 || Math.abs(point.z) > 12) return;
+    if (!point || Math.abs(point.x) > 16 || Math.abs(point.z) > 16) return;
     if (aiming === "from") {
       fromPoint = point;
       fromPoint.y = -0.72;
@@ -1183,14 +1249,13 @@ async function boot() {
       aiming = "to";
       $("shot-from").classList.remove("on");
       $("shot-to").classList.add("on");
-      $("shot-hint").textContent = "Кликни ворота или газон — куда бьёт";
+      $("shot-hint").textContent = "Кликни ворота — куда бьёт";
     } else {
       toPoint = point;
-      if (toPoint.y < -0.65) toPoint.y = -0.72;
       shotTo.position.copy(toPoint);
-      shotTo.rotation.set(toPoint.y > -0.5 ? 0 : -Math.PI / 2, 0, 0);
+      shotTo.rotation.set(0, 0, 0);
       shotTo.visible = true;
-      $("shot-hint").textContent = "Жми удар";
+      $("shot-hint").textContent = "Жми удар. Мяч пролетит точку.";
     }
     refreshPath();
   }
@@ -1235,7 +1300,7 @@ async function boot() {
     aiming = "to";
     $("shot-to").classList.add("on");
     $("shot-from").classList.remove("on");
-    $("shot-hint").textContent = "Кликни ворота или газон — куда бьёт";
+    $("shot-hint").textContent = "Кликни ворота — куда бьёт";
   });
   $("shot-curl").addEventListener("click", () => {
     curl = true;
@@ -1252,10 +1317,25 @@ async function boot() {
   $("shot-play").addEventListener("click", () => {
     if (!fromPoint || !toPoint || shotT >= 0) return;
     refreshPath();
+    cheered = false;
+    shotPrevZ = fromPoint.z;
     shotT = 0;
     shotBall.position.copy(fromPoint);
     shotBall.rotation.set(0, 0, 0);
     shotBall.visible = true;
+    $("shot-hint").textContent = "Удар";
+  });
+  $("shot-match").addEventListener("click", () => {
+    shotBall.material.map = matchMap;
+    shotBall.material.needsUpdate = true;
+    $("shot-match").classList.add("on");
+    $("shot-final").classList.remove("on");
+  });
+  $("shot-final").addEventListener("click", () => {
+    shotBall.material.map = finalMap;
+    shotBall.material.needsUpdate = true;
+    $("shot-final").classList.add("on");
+    $("shot-match").classList.remove("on");
   });
 
   let chapter = 0;
@@ -1449,6 +1529,19 @@ async function boot() {
         const flight = Math.min(shotT / SHOT_FLIGHT, 1);
         const eased = flight * flight * (3 - 2 * flight);
         shotCurve.getPoint(eased, shotPoint);
+        const inside =
+          shotPoint.x > -2.05 &&
+          shotPoint.x < 2.45 &&
+          shotPoint.y > -0.9 &&
+          shotPoint.y < 0.42;
+        if (!cheered && shotPrevZ > mouthZ && shotPoint.z <= mouthZ && inside) {
+          cheered = true;
+          if (startCrowd.playCheer) startCrowd.playCheer();
+          $("shot-hint").textContent = "Гол";
+        } else if (!cheered && shotPrevZ > mouthZ && shotPoint.z <= mouthZ) {
+          $("shot-hint").textContent = "Мимо";
+        }
+        shotPrevZ = shotPoint.z;
         shotBall.position.copy(shotPoint);
         shotBall.rotation.y += dt * (curl ? 12 : 2.2);
         if (curl) shotBall.rotation.z += dt * 5;

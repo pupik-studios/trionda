@@ -116,7 +116,7 @@ nav { display: flex; gap: 8px; }
   top: 24px;
   left: 24px;
   z-index: 4;
-  width: min(280px, 88vw);
+  width: min(320px, 90vw);
   pointer-events: auto;
   display: flex;
   flex-direction: column;
