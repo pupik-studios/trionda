@@ -138,6 +138,24 @@ nav { display: flex; gap: 8px; }
 
 .shot-row { display: flex; gap: 8px; }
 
+.shot-power {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--gold);
+}
+
+.shot-power b { letter-spacing: 0; }
+
+.shot-power input {
+  pointer-events: auto;
+  width: 100%;
+  accent-color: #c6a15a;
+  cursor: pointer;
+}
+
 #shot-panel button {
   pointer-events: auto;
   flex: 1;

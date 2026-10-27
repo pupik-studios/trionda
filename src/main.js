@@ -1186,7 +1186,10 @@ async function boot() {
   let toPoint = null;
   const shotPoint = new THREE.Vector3();
   const groundHit = new THREE.Vector3();
-  const SHOT_FLIGHT = 2.15;
+  let power = 80;
+  let shotPower = 80;
+  let shotDur = 0.53;
+  const shotDuration = (value) => 1.45 - (Math.min(100, Math.max(1, value)) / 100) * 1.12;
   const goalCam = new THREE.Vector3(0.2, 6.4, 9.8);
   const goalLook = new THREE.Vector3(0.2, -0.55, -0.2);
   const mouthZ = -1.35;
@@ -1318,12 +1321,18 @@ async function boot() {
     if (!fromPoint || !toPoint || shotT >= 0) return;
     refreshPath();
     cheered = false;
+    shotPower = power;
+    shotDur = shotDuration(power);
     shotPrevZ = fromPoint.z;
     shotT = 0;
     shotBall.position.copy(fromPoint);
     shotBall.rotation.set(0, 0, 0);
     shotBall.visible = true;
     $("shot-hint").textContent = "Удар";
+  });
+  $("shot-power").addEventListener("input", (e) => {
+    power = Number(e.target.value);
+    $("shot-power-val").textContent = `${power}%`;
   });
   $("shot-match").addEventListener("click", () => {
     shotBall.material.map = matchMap;
@@ -1526,8 +1535,8 @@ async function boot() {
       if (toPoint && toPoint.y > -0.5) shotTo.lookAt(camera.position);
       if (shotT >= 0) {
         shotT += dt;
-        const flight = Math.min(shotT / SHOT_FLIGHT, 1);
-        const eased = flight * flight * (3 - 2 * flight);
+        const flight = Math.min(shotT / shotDur, 1);
+        const eased = 1 - (1 - flight) * (1 - flight);
         shotCurve.getPoint(eased, shotPoint);
         const inside =
           shotPoint.x > -2.05 &&
@@ -1543,8 +1552,9 @@ async function boot() {
         }
         shotPrevZ = shotPoint.z;
         shotBall.position.copy(shotPoint);
-        shotBall.rotation.y += dt * (curl ? 12 : 2.2);
-        if (curl) shotBall.rotation.z += dt * 5;
+        const spinK = 0.55 + shotPower / 100;
+        shotBall.rotation.y += dt * (curl ? 18 : 3) * spinK;
+        if (curl) shotBall.rotation.z += dt * 7 * spinK;
         if (flight >= 1) shotT = -1;
       }
     } else {
