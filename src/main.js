@@ -69,7 +69,8 @@ function startCrowd() {
       .then((res) => res.arrayBuffer())
       .then((raw) => ctx.decodeAudioData(raw));
 
-  Promise.all([load("/audio/crowd.wav"), load("/audio/fans.mp3")])
+  const asset = (path) => `${import.meta.env.BASE_URL}${path}`;
+  Promise.all([load(asset("audio/crowd.wav")), load(asset("audio/fans.mp3"))])
     .then(([bedBuf, fansBuf]) => {
       fadeEdges(bedBuf, 180);
       fadeEdges(fansBuf, 40);
@@ -975,12 +976,12 @@ async function boot() {
     projectBallTexture(),
     projectFinalTexture(),
     new Promise((resolve, reject) => {
-      new THREE.TextureLoader().load("/trophy.png", resolve, undefined, reject);
+      new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}trophy.png`, resolve, undefined, reject);
     }),
     new Promise((resolve, reject) => {
-      new THREE.TextureLoader().load("/grass.jpg", resolve, undefined, reject);
+      new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}grass.jpg`, resolve, undefined, reject);
     }),
-    loader.loadAsync("/models/goal.glb"),
+    loader.loadAsync(`${import.meta.env.BASE_URL}models/goal.glb`),
   ]);
   trophyMap.colorSpace = THREE.SRGBColorSpace;
   trophyMap.anisotropy = 8;

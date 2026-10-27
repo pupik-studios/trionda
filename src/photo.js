@@ -162,7 +162,7 @@ function paint(views) {
 }
 
 export async function projectBallTexture() {
-  const px = await pixels("/ball.jpg");
+  const px = await pixels(`${import.meta.env.BASE_URL}ball.jpg`);
   return paint([
     { view: viewOf(FRONT), photo: FRONT, px },
     { view: viewOf(FRONT_BACK), photo: FRONT_BACK, px },
@@ -170,7 +170,7 @@ export async function projectBallTexture() {
 }
 
 export async function projectFinalTexture() {
-  const px = await pixels("/ball-final.jpg");
+  const px = await pixels(`${import.meta.env.BASE_URL}ball-final.jpg`);
   return paint([
     { view: viewOf(FINAL), photo: FINAL, px },
     { view: viewOf(FINAL_BACK), photo: FINAL_BACK, px },
