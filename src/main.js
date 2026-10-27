@@ -1061,6 +1061,40 @@ async function boot() {
   goal.position.set(0.2, -1.02, -2.05);
   scene.add(goal);
 
+  const shotCurve = new THREE.CubicBezierCurve3(
+    new THREE.Vector3(1.85, -0.72, 0.85),
+    new THREE.Vector3(2.15, 0.72, 0.05),
+    new THREE.Vector3(-0.15, 0.9, -0.95),
+    new THREE.Vector3(-1.2, 0.08, -1.9)
+  );
+  const shotBall = new THREE.Mesh(
+    new THREE.SphereGeometry(0.3, 64, 48),
+    new THREE.MeshBasicMaterial({ map: matchMap })
+  );
+  shotBall.visible = false;
+  scene.add(shotBall);
+  const shotTrail = new THREE.Mesh(
+    new THREE.TubeGeometry(shotCurve, 96, 0.02, 8, false),
+    new THREE.MeshBasicMaterial({ color: 0xc6a15a, transparent: true, opacity: 0.8 })
+  );
+  shotTrail.visible = false;
+  scene.add(shotTrail);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0xc6a15a,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.95,
+  });
+  const shotFrom = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.26, 40), ringMat);
+  shotFrom.rotation.x = -Math.PI / 2;
+  shotFrom.position.set(1.85, -1.005, 0.85);
+  shotFrom.visible = false;
+  scene.add(shotFrom);
+  const shotTo = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.3, 40), ringMat);
+  shotTo.position.copy(shotCurve.getPoint(1));
+  shotTo.visible = false;
+  scene.add(shotTo);
+
   const kits = KITS.map((kit, i) => {
     const mesh = sitOnFloor(makeStraightKit(kit), 0.44);
     const kitX = [0.06, 0.52, 0.98, 1.42];
@@ -1084,6 +1118,24 @@ async function boot() {
   const fill = new THREE.DirectionalLight("#ffe0cc", 0.4);
   fill.position.set(-2, 2, 6);
   scene.add(fill);
+
+  let shotT = -1;
+  const shotPoint = new THREE.Vector3();
+  const SHOT_FLIGHT = 2.8;
+  const SHOT_HOLD = 1.6;
+
+  function playGoal() {
+    shotT = 0;
+    shotBall.position.copy(shotCurve.getPoint(0));
+    shotBall.rotation.set(0, 0, 0);
+    shotBall.visible = true;
+    shotTrail.visible = true;
+    shotFrom.visible = true;
+    shotTo.visible = true;
+    $("goal-btn").classList.add("on");
+  }
+
+  $("goal-btn").addEventListener("click", playGoal);
 
   let chapter = 0;
   let targetRot = CHAPTERS[0].rot;
@@ -1260,14 +1312,37 @@ async function boot() {
     pos.needsUpdate = true;
     ola.position.y = ball.position.y;
 
-    const narrow = window.innerWidth < 900;
-    const focus = focusFinal ? finalBall : ball;
-    const eyeY = focus.position.y + (narrow ? -0.28 : 0);
-    camera.position.z += (focus.position.z + 3.8 - camera.position.z) * 0.08;
-    camera.position.y += (eyeY - camera.position.y) * 0.08;
-    camera.position.x += (focus.position.x - camera.position.x) * 0.08;
-    camTarget.copy(focus.position);
-    camera.lookAt(camTarget);
+    if (shotT >= 0) {
+      shotT += dt;
+      const flight = Math.min(shotT / SHOT_FLIGHT, 1);
+      const eased = flight * flight * (3 - 2 * flight);
+      shotCurve.getPoint(eased, shotPoint);
+      shotBall.position.copy(shotPoint);
+      shotBall.rotation.x += dt * 13;
+      shotBall.rotation.y += dt * 8;
+      shotBall.rotation.z += dt * 3.2;
+      camera.position.x += (2.4 - camera.position.x) * 0.08;
+      camera.position.y += (1.15 - camera.position.y) * 0.08;
+      camera.position.z += (5.4 - camera.position.z) * 0.08;
+      camera.lookAt(0.35, -0.25, -0.7);
+      if (shotT > SHOT_FLIGHT + SHOT_HOLD) {
+        shotT = -1;
+        shotBall.visible = false;
+        shotTrail.visible = false;
+        shotFrom.visible = false;
+        shotTo.visible = false;
+        $("goal-btn").classList.remove("on");
+      }
+    } else {
+      const narrow = window.innerWidth < 900;
+      const focus = focusFinal ? finalBall : ball;
+      const eyeY = focus.position.y + (narrow ? -0.28 : 0);
+      camera.position.z += (focus.position.z + 3.8 - camera.position.z) * 0.08;
+      camera.position.y += (eyeY - camera.position.y) * 0.08;
+      camera.position.x += (focus.position.x - camera.position.x) * 0.08;
+      camTarget.copy(focus.position);
+      camera.lookAt(camTarget);
+    }
     renderer.render(scene, camera);
   }
 

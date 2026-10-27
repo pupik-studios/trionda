@@ -85,7 +85,26 @@ canvas { display: block; touch-action: none; }
   display: block;
 }
 
+.brand-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+
 nav { display: flex; gap: 8px; }
+
+#goal-btn {
+  pointer-events: auto;
+  background: transparent;
+  color: var(--gold);
+  border: 1px solid rgba(198, 161, 90, 0.75);
+  font: inherit;
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+#goal-btn.on {
+  background: var(--gold);
+  color: #14110c;
+}
 
 nav button {
   pointer-events: auto;
@@ -94,9 +113,9 @@ nav button {
   border: 0;
   border-bottom: 1px solid transparent;
   font: inherit;
-  font-size: 14px;
-  letter-spacing: 0.04em;
-  padding: 6px 7px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  padding: 6px 5px;
   cursor: pointer;
 }
 
