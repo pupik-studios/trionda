@@ -1024,22 +1024,74 @@ function canvasTexture(canvas, colorSpace) {
 }
 
 async function boot() {
-  await Promise.race([
-    document.fonts.load("700 96px Oswald"),
-    new Promise((resolve) => setTimeout(resolve, 800)),
-  ]);
+  const part = { font: 0, ball: 0, final: 0, trophy: 0, grass: 0, goal: 0 };
+  const weight = { font: 0.02, ball: 0.4, final: 0.4, trophy: 0.04, grass: 0.08, goal: 0.06 };
+  const setLoad = (ratio) => {
+    $("loader-pct").textContent = `${Math.round(Math.min(1, Math.max(0, ratio)) * 100)}%`;
+  };
+  const tick = () => {
+    let sum = 0;
+    for (const key in part) sum += part[key] * weight[key];
+    setLoad(sum);
+  };
+  const trackTexture = (url, key) =>
+    new Promise((resolve, reject) => {
+      new THREE.TextureLoader().load(
+        url,
+        (tex) => {
+          part[key] = 1;
+          tick();
+          resolve(tex);
+        },
+        (event) => {
+          if (event.lengthComputable && event.total) {
+            part[key] = event.loaded / event.total;
+            tick();
+          }
+        },
+        reject
+      );
+    });
+  setLoad(0);
 
   const loader = new GLTFLoader();
-  const [albedo, finalAlbedo, trophyMap, grassMap, goalGltf] = await Promise.all([
-    projectBallTexture(),
-    projectFinalTexture(),
-    new Promise((resolve, reject) => {
-      new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}trophy.png`, resolve, undefined, reject);
+  const asset = (path) => `${import.meta.env.BASE_URL}${path}`;
+  const [, albedo, finalAlbedo, trophyMap, grassMap, goalGltf] = await Promise.all([
+    Promise.race([
+      document.fonts.load("700 96px Oswald"),
+      new Promise((resolve) => setTimeout(resolve, 800)),
+    ]).then((value) => {
+      part.font = 1;
+      tick();
+      return value;
     }),
-    new Promise((resolve, reject) => {
-      new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}grass.jpg`, resolve, undefined, reject);
+    projectBallTexture((p) => {
+      part.ball = p;
+      tick();
     }),
-    loader.loadAsync(`${import.meta.env.BASE_URL}models/goal.glb`),
+    projectFinalTexture((p) => {
+      part.final = p;
+      tick();
+    }),
+    trackTexture(asset("trophy.png"), "trophy"),
+    trackTexture(asset("grass.jpg"), "grass"),
+    new Promise((resolve, reject) => {
+      loader.load(
+        asset("models/goal.glb"),
+        (gltf) => {
+          part.goal = 1;
+          tick();
+          resolve(gltf);
+        },
+        (event) => {
+          if (event.lengthComputable && event.total) {
+            part.goal = event.loaded / event.total;
+            tick();
+          }
+        },
+        reject
+      );
+    }),
   ]);
   trophyMap.colorSpace = THREE.SRGBColorSpace;
   trophyMap.anisotropy = 8;
@@ -1589,6 +1641,8 @@ async function boot() {
   camera.updateProjectionMatrix();
   camera.position.set(0, 0, 3.8);
   ball.rotation.y = CHAPTERS[0].rot;
+  setLoad(1);
+  await new Promise((resolve) => requestAnimationFrame(resolve));
   $("loader").classList.add("hide");
   frame();
 }

@@ -99,7 +99,7 @@ function rim(view, photo, px, X, Y, Z) {
   );
 }
 
-function paint(views) {
+async function paint(views, onProgress) {
   const W = 2048;
   const H = 1024;
   const out = document.createElement("canvas");
@@ -155,24 +155,32 @@ function paint(views) {
       od[i + 2] = rgb[2];
       od[i + 3] = 255;
     }
+    if (onProgress && (y & 31) === 31) {
+      onProgress((y + 1) / H);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
   }
 
+  if (onProgress) onProgress(1);
   out.getContext("2d").putImageData(image, 0, 0);
   return out;
 }
 
-export async function projectBallTexture() {
-  const px = await pixels(`${import.meta.env.BASE_URL}ball.jpg`);
-  return paint([
-    { view: viewOf(FRONT), photo: FRONT, px },
-    { view: viewOf(FRONT_BACK), photo: FRONT_BACK, px },
-  ]);
+async function project(url, views, onProgress) {
+  const report = onProgress || (() => {});
+  report(0.04);
+  const px = await pixels(url);
+  report(0.1);
+  return paint(
+    views.map((photo) => ({ view: viewOf(photo), photo, px })),
+    (p) => report(0.1 + p * 0.9)
+  );
 }
 
-export async function projectFinalTexture() {
-  const px = await pixels(`${import.meta.env.BASE_URL}ball-final.jpg`);
-  return paint([
-    { view: viewOf(FINAL), photo: FINAL, px },
-    { view: viewOf(FINAL_BACK), photo: FINAL_BACK, px },
-  ]);
+export function projectBallTexture(onProgress) {
+  return project(`${import.meta.env.BASE_URL}ball.jpg`, [FRONT, FRONT_BACK], onProgress);
+}
+
+export function projectFinalTexture(onProgress) {
+  return project(`${import.meta.env.BASE_URL}ball-final.jpg`, [FINAL, FINAL_BACK], onProgress);
 }
