@@ -1023,6 +1023,261 @@ function canvasTexture(canvas, colorSpace) {
   return tex;
 }
 
+function makeGoalNet(root) {
+  let mesh = null;
+  root.traverse((obj) => {
+    if (!mesh && obj.isMesh && obj.geometry?.attributes?.position) mesh = obj;
+  });
+  if (!mesh) return null;
+  const src = mesh.geometry.attributes.position;
+  const count = src.count;
+  const live = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    live[i * 3] = src.getX(i);
+    live[i * 3 + 1] = src.getY(i);
+    live[i * 3 + 2] = src.getZ(i);
+  }
+  mesh.geometry.setAttribute("position", new THREE.BufferAttribute(live, 3));
+  mesh.frustumCulled = false;
+  if (mesh.material) mesh.material.side = THREE.DoubleSide;
+
+  const weld = 0.012;
+  const rx = [];
+  const ry = [];
+  const rz = [];
+  const vert = new Int32Array(count);
+  const grid = new Map();
+  for (let i = 0; i < count; i++) {
+    const px = live[i * 3];
+    const py = live[i * 3 + 1];
+    const pz = live[i * 3 + 2];
+    const cx = Math.floor(px / weld);
+    const cy = Math.floor(py / weld);
+    const cz = Math.floor(pz / weld);
+    let found = -1;
+    for (let dx = -1; dx <= 1 && found < 0; dx++) {
+      for (let dy = -1; dy <= 1 && found < 0; dy++) {
+        for (let dz = -1; dz <= 1 && found < 0; dz++) {
+          const list = grid.get(`${cx + dx},${cy + dy},${cz + dz}`);
+          if (!list) continue;
+          for (const pi of list) {
+            const ox = rx[pi] - px;
+            const oy = ry[pi] - py;
+            const oz = rz[pi] - pz;
+            if (ox * ox + oy * oy + oz * oz <= weld * weld) {
+              found = pi;
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (found < 0) {
+      found = rx.length;
+      rx.push(px);
+      ry.push(py);
+      rz.push(pz);
+      const key = `${cx},${cy},${cz}`;
+      if (!grid.has(key)) grid.set(key, []);
+      grid.get(key).push(found);
+    }
+    vert[i] = found;
+  }
+
+  const off = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const p = vert[i];
+    off[i * 3] = live[i * 3] - rx[p];
+    off[i * 3 + 1] = live[i * 3 + 1] - ry[p];
+    off[i * 3 + 2] = live[i * 3 + 2] - rz[p];
+  }
+
+  const n = rx.length;
+  const x = Float32Array.from(rx);
+  const y = Float32Array.from(ry);
+  const z = Float32Array.from(rz);
+  const pinned = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    pinned[i] = Math.abs(x[i]) > 0.97 || Math.abs(y[i]) > 0.325 || Math.abs(z[i]) > 0.272 ? 1 : 0;
+  }
+
+  const linkI = [];
+  const linkJ = [];
+  const linkL = [];
+  const span = 0.085;
+  const buckets = new Map();
+  const bucketKey = (i) => `${Math.floor(x[i] / span)},${Math.floor(y[i] / span)},${Math.floor(z[i] / span)}`;
+  for (let i = 0; i < n; i++) {
+    const key = bucketKey(i);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(i);
+  }
+  for (let i = 0; i < n; i++) {
+    const cx = Math.floor(x[i] / span);
+    const cy = Math.floor(y[i] / span);
+    const cz = Math.floor(z[i] / span);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          const list = buckets.get(`${cx + dx},${cy + dy},${cz + dz}`);
+          if (!list) continue;
+          for (const j of list) {
+            if (j <= i) continue;
+            const ox = x[j] - x[i];
+            const oy = y[j] - y[i];
+            const oz = z[j] - z[i];
+            const dist = Math.hypot(ox, oy, oz);
+            if (dist > 0.004 && dist < span) {
+              linkI.push(i);
+              linkJ.push(j);
+              linkL.push(dist);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    mesh,
+    n,
+    x,
+    y,
+    z,
+    rx: Float32Array.from(rx),
+    ry: Float32Array.from(ry),
+    rz: Float32Array.from(rz),
+    vx: new Float32Array(n),
+    vy: new Float32Array(n),
+    vz: new Float32Array(n),
+    pinned,
+    vert,
+    off,
+    linkI,
+    linkJ,
+    linkL,
+    awake: 0,
+    havePrev: false,
+    prev: new THREE.Vector3(),
+    ball: new THREE.Vector3(),
+    ahead: new THREE.Vector3(),
+    vel: new THREE.Vector3(),
+  };
+}
+
+function stepGoalNet(net, dt, ballWorld, pushing) {
+  if (!net) return;
+  const { n, x, y, z, rx, ry, rz, vx, vy, vz, pinned, linkI, linkJ, linkL } = net;
+  if (pushing && ballWorld) {
+    net.mesh.updateWorldMatrix(true, false);
+    net.ball.copy(ballWorld);
+    net.mesh.worldToLocal(net.ball);
+    if (net.havePrev) {
+      net.ahead.copy(ballWorld);
+      net.mesh.worldToLocal(net.ahead);
+      net.vel.subVectors(net.ahead, net.prev);
+    } else {
+      net.vel.set(0, 0, 0);
+    }
+    net.prev.copy(net.ball);
+    net.havePrev = true;
+    const speed = net.vel.length();
+    if (speed > 0.004) {
+      const dz = net.vel.z / speed;
+      const reach = 0.58;
+      for (let i = 0; i < n; i++) {
+        if (pinned[i]) continue;
+        const ox = x[i] - net.ball.x;
+        const oy = y[i] - net.ball.y;
+        const oz = z[i] - net.ball.z;
+        const dist = Math.hypot(ox, oy, oz);
+        if (dist > reach) continue;
+        const w = (1 - dist / reach) ** 2;
+        const nx = ox / (dist || 1);
+        const ny = oy / (dist || 1);
+        const nz = oz / (dist || 1);
+        x[i] += nx * w * 0.12;
+        y[i] += ny * w * 0.05 - w * 0.28;
+        z[i] += dz * w * 0.2 + nz * w * 0.08;
+        vx[i] += nx * w * 0.12;
+        vy[i] -= w * 0.7;
+        vz[i] += dz * w * 0.25;
+        net.awake = 5;
+      }
+    }
+  } else {
+    net.havePrev = false;
+  }
+  if (net.awake <= 0) return;
+  net.awake -= dt;
+  const stiffness = 1.6;
+  const restore = 0.35;
+  const damping = 1.4;
+  const steps = 2;
+  const h = Math.min(dt, 0.05) / steps;
+  for (let sub = 0; sub < steps; sub++) {
+    for (let k = 0; k < linkI.length; k++) {
+      const i = linkI[k];
+      const j = linkJ[k];
+      let ox = x[j] - x[i];
+      let oy = y[j] - y[i];
+      let oz = z[j] - z[i];
+      const dist = Math.hypot(ox, oy, oz) || 1e-5;
+      const mag = ((dist - linkL[k]) / dist) * stiffness * h;
+      ox *= mag;
+      oy *= mag;
+      oz *= mag;
+      if (!pinned[i]) {
+        vx[i] += ox;
+        vy[i] += oy;
+        vz[i] += oz;
+      }
+      if (!pinned[j]) {
+        vx[j] -= ox;
+        vy[j] -= oy;
+        vz[j] -= oz;
+      }
+    }
+    const damp = Math.exp(-damping * h);
+    const cap = 0.46;
+    let far = 0;
+    for (let i = 0; i < n; i++) {
+      if (pinned[i]) continue;
+      vx[i] += (rx[i] - x[i]) * restore * h;
+      vy[i] += (ry[i] - y[i]) * restore * h;
+      vz[i] += (rz[i] - z[i]) * restore * h;
+      vx[i] *= damp;
+      vy[i] *= damp;
+      vz[i] *= damp;
+      x[i] += vx[i] * h;
+      y[i] += vy[i] * h;
+      z[i] += vz[i] * h;
+      const ox = x[i] - rx[i];
+      const oy = y[i] - ry[i];
+      const oz = z[i] - rz[i];
+      const od = Math.hypot(ox, oy, oz);
+      if (od > far) far = od;
+      if (od > cap) {
+        const scale = cap / od;
+        x[i] = rx[i] + ox * scale;
+        y[i] = ry[i] + oy * scale;
+        z[i] = rz[i] + oz * scale;
+      }
+    }
+    if (far > 0.012) net.awake = Math.max(net.awake, 0.4);
+  }
+  const arr = net.mesh.geometry.attributes.position.array;
+  const vert = net.vert;
+  const off = net.off;
+  for (let i = 0; i < vert.length; i++) {
+    const p = vert[i];
+    arr[i * 3] = x[p] + off[i * 3];
+    arr[i * 3 + 1] = y[p] + off[i * 3 + 1];
+    arr[i * 3 + 2] = z[p] + off[i * 3 + 2];
+  }
+  net.mesh.geometry.attributes.position.needsUpdate = true;
+}
+
 async function boot() {
   const part = { font: 0, ball: 0, final: 0, trophy: 0, grass: 0, goal: 0 };
   const weight = { font: 0.02, ball: 0.4, final: 0.4, trophy: 0.04, grass: 0.08, goal: 0.06 };
@@ -1182,6 +1437,7 @@ async function boot() {
     goalBox.max.z
   );
   scene.add(goalMouth);
+  const goalNet = makeGoalNet(goal);
 
   let shotCurve = new THREE.CubicBezierCurve3(
     new THREE.Vector3(0, -0.72, 1),
@@ -1627,6 +1883,7 @@ async function boot() {
       camTarget.copy(focus.position);
       camera.lookAt(camTarget);
     }
+    stepGoalNet(goalNet, dt, shotT >= 0 && shotBall.visible ? shotBall.position : null, goalMode && shotT >= 0 && shotBall.visible);
     renderer.render(scene, camera);
   }
 
