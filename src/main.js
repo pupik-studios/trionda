@@ -1183,6 +1183,8 @@ function stepGoalNet(net, dt, ballWorld, pushing) {
     net.havePrev = true;
     const speed = net.vel.length();
     if (speed > 0.004) {
+      const dx = net.vel.x / speed;
+      const dy = net.vel.y / speed;
       const dz = net.vel.z / speed;
       const reach = 0.58;
       for (let i = 0; i < n; i++) {
@@ -1193,15 +1195,13 @@ function stepGoalNet(net, dt, ballWorld, pushing) {
         const dist = Math.hypot(ox, oy, oz);
         if (dist > reach) continue;
         const w = (1 - dist / reach) ** 2;
-        const nx = ox / (dist || 1);
-        const ny = oy / (dist || 1);
-        const nz = oz / (dist || 1);
-        x[i] += nx * w * 0.12;
-        y[i] += ny * w * 0.05 - w * 0.28;
-        z[i] += dz * w * 0.2 + nz * w * 0.08;
-        vx[i] += nx * w * 0.12;
-        vy[i] -= w * 0.7;
-        vz[i] += dz * w * 0.25;
+        const shove = w * 0.26;
+        x[i] -= dx * shove;
+        y[i] -= dy * shove;
+        z[i] -= dz * shove;
+        vx[i] -= dx * w * 1.1;
+        vy[i] -= dy * w * 1.1;
+        vz[i] -= dz * w * 1.1;
         net.awake = 5;
       }
     }
