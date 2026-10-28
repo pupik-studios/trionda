@@ -1186,7 +1186,7 @@ function stepGoalNet(net, dt, ballWorld, pushing) {
       const dx = net.vel.x / speed;
       const dy = net.vel.y / speed;
       const dz = net.vel.z / speed;
-      const reach = 0.58;
+      const reach = 0.22;
       for (let i = 0; i < n; i++) {
         if (pinned[i]) continue;
         const ox = x[i] - net.ball.x;
@@ -1194,15 +1194,16 @@ function stepGoalNet(net, dt, ballWorld, pushing) {
         const oz = z[i] - net.ball.z;
         const dist = Math.hypot(ox, oy, oz);
         if (dist > reach) continue;
+        if (ox * dx + oy * dy + oz * dz < -0.03) continue;
         const w = (1 - dist / reach) ** 2;
-        const shove = w * 0.26;
-        x[i] -= dx * shove;
-        y[i] -= dy * shove;
-        z[i] -= dz * shove;
-        vx[i] -= dx * w * 1.1;
-        vy[i] -= dy * w * 1.1;
-        vz[i] -= dz * w * 1.1;
-        net.awake = 5;
+        const push = Math.min((reach - dist) * 0.9, 0.055);
+        x[i] += dx * push;
+        y[i] += dy * push - push * 0.1;
+        z[i] += dz * push;
+        vx[i] += dx * w * 0.45;
+        vy[i] += dy * w * 0.45;
+        vz[i] += dz * w * 0.45;
+        net.awake = 1.8;
       }
     }
   } else {
@@ -1210,9 +1211,9 @@ function stepGoalNet(net, dt, ballWorld, pushing) {
   }
   if (net.awake <= 0) return;
   net.awake -= dt;
-  const stiffness = 1.6;
-  const restore = 0.35;
-  const damping = 1.4;
+  const stiffness = 4.2;
+  const restore = 1.35;
+  const damping = 2.8;
   const steps = 2;
   const h = Math.min(dt, 0.05) / steps;
   for (let sub = 0; sub < steps; sub++) {
@@ -1239,7 +1240,7 @@ function stepGoalNet(net, dt, ballWorld, pushing) {
       }
     }
     const damp = Math.exp(-damping * h);
-    const cap = 0.46;
+    const cap = 0.2;
     let far = 0;
     for (let i = 0; i < n; i++) {
       if (pinned[i]) continue;
