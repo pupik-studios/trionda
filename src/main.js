@@ -966,6 +966,48 @@ function makeOla() {
   return points;
 }
 
+function makeCrowdWave() {
+  const group = new THREE.Group();
+  const bars = [];
+  const rings = [];
+  const palette = [0xe10600, 0xf4f7fb, 0x1d6fe0, 0x1b9a3c, 0xe3c37a];
+  const N = 48;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2 - Math.PI * 0.5;
+    const r = 4.9 + (i % 3) * 0.08;
+    const mat = new THREE.MeshBasicMaterial({
+      color: palette[i % palette.length],
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1, 0.14), mat);
+    mesh.position.set(Math.cos(a) * r, -1.02, Math.sin(a) * r);
+    mesh.userData.phase = a;
+    mesh.scale.y = 0.12;
+    group.add(mesh);
+    bars.push(mesh);
+  }
+  for (let i = 0; i < 3; i++) {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.35 + i * 0.55, 0.42 + i * 0.55, 64),
+      new THREE.MeshBasicMaterial({
+        color: 0xe3c37a,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = -1.005;
+    group.add(ring);
+    rings.push(ring);
+  }
+  group.visible = false;
+  return { group, bars, rings };
+}
+
 function pitchMarkings() {
   const group = new THREE.Group();
   const paint = new THREE.MeshBasicMaterial({ color: 0xf7f4ee });
@@ -1486,6 +1528,20 @@ async function boot() {
   const ola = makeOla();
   ola.position.copy(ball.position);
   scene.add(ola);
+  const crowd = makeCrowdWave();
+  scene.add(crowd.group);
+  let olaWave = -1;
+  const olaHint = $("hint").textContent;
+  function startOlaWave() {
+    if (goalMode) return;
+    olaWave = 0;
+    crowd.group.visible = true;
+    $("ola-btn").classList.add("on");
+    $("hint").textContent = "ЛА ОЛА · 48 СБОРНЫХ · ВОЛНА ИДЁТ";
+    if (startCrowd.playCheer) startCrowd.playCheer();
+    spin = 1.8;
+    dragged = focusFinal ? finalBall : ball;
+  }
 
   scene.add(new THREE.HemisphereLight("#d5e6ff", "#14301f", 0.45));
   const key = new THREE.DirectionalLight("#fff6ec", 0.22);
@@ -1588,6 +1644,9 @@ async function boot() {
     $("shot-panel").hidden = false;
     $("dossier").hidden = true;
     faceBack = null;
+    crowd.group.visible = false;
+    olaWave = -1;
+    $("ola-btn").classList.remove("on");
     for (const obj of [ball, finalBall, shadow, finalShadow, trophy, trophyShadow, ola, ...kits]) {
       obj.visible = false;
     }
@@ -1609,6 +1668,7 @@ async function boot() {
   }
 
   $("goal-btn").addEventListener("click", enterGoal);
+  $("ola-btn").addEventListener("click", startOlaWave);
   $("shot-back").addEventListener("click", leaveGoal);
   $("shot-from").addEventListener("click", () => {
     aiming = "from";
@@ -1832,16 +1892,49 @@ async function boot() {
     }
     faceCamera(trophy, camera);
     const t = clock.elapsedTime;
+    if (olaWave >= 0) {
+      olaWave += dt;
+      const wave = olaWave * 2.15;
+      for (const bar of crowd.bars) {
+        const crest = Math.max(0, Math.sin(bar.userData.phase - wave));
+        const lift = crest * crest;
+        bar.scale.y = 0.14 + lift * 2.2;
+        bar.position.y = -1.02 + bar.scale.y * 0.5;
+        bar.material.opacity = 0.25 + lift * 0.7;
+      }
+      for (let i = 0; i < crowd.rings.length; i++) {
+        const ring = crowd.rings[i];
+        const age = Math.max(0, olaWave - i * 0.28);
+        const life = Math.min(1, age / 1.8);
+        const fade = life < 1 ? life : Math.max(0, 1 - (age - 1.8) / 1.4);
+        ring.scale.setScalar(0.4 + age * 1.35);
+        ring.material.opacity = fade * 0.55;
+      }
+      if (olaWave > 5.2) {
+        olaWave = -1;
+        crowd.group.visible = false;
+        $("ola-btn").classList.remove("on");
+        $("hint").textContent = olaHint;
+      }
+    }
     const pos = ola.geometry.attributes.position;
     const phases = ola.userData.phases;
     const radii = ola.userData.radii;
+    const waveAmp = olaWave >= 0 ? 1.15 : 0.48;
+    const waveSpeed = olaWave >= 0 ? olaWave * 2.15 : t * 1.4;
     for (let i = 0; i < phases.length; i++) {
       const a = phases[i];
-      pos.setY(i, Math.sin(a * 3 + t * 1.4) * 0.48);
+      const lift =
+        olaWave >= 0
+          ? Math.max(0, Math.sin(a - waveSpeed)) ** 2 * waveAmp
+          : Math.sin(a * 3 + waveSpeed) * waveAmp;
+      pos.setY(i, lift);
       pos.setX(i, Math.cos(a) * radii[i]);
       pos.setZ(i, Math.sin(a) * radii[i]);
     }
     pos.needsUpdate = true;
+    ola.material.opacity = olaWave >= 0 ? 1 : 0.9;
+    ola.material.size = olaWave >= 0 ? 0.055 : 0.035;
     ola.position.y = ball.position.y;
 
     if (goalMode) {

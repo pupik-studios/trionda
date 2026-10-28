@@ -100,7 +100,10 @@ canvas { display: block; touch-action: none; }
 
 nav { display: flex; gap: 8px; }
 
-#goal-btn {
+.brand-actions { display: flex; gap: 8px; }
+
+#goal-btn,
+#ola-btn {
   pointer-events: auto;
   background: transparent;
   color: var(--gold);
@@ -112,10 +115,13 @@ nav { display: flex; gap: 8px; }
   cursor: pointer;
 }
 
-#goal-btn.on {
+#goal-btn.on,
+#ola-btn.on {
   background: var(--gold);
   color: #14110c;
 }
+
+#ui.goal-mode #ola-btn { display: none; }
 
 #ui.goal-mode::before { opacity: 0; }
 #ui.goal-mode .top,
